@@ -35,7 +35,14 @@ class DumpEXTXYZ : public Dump {
 
   void init_style() override;
   void write_header(bigint) override;
-  void pack(tagint *) override;
+  typedef void (DumpEXTXYZ::*FnPtrHeader)(bigint);
+  FnPtrHeader header_choice;
+  void header_binary(bigint);
+  void header_binary_triclinic(bigint);
+  typedef void (DumpEXTXYZ::*FnPtrPack)(tagint *);
+  FnPtrPack pack_choice;    // ptr to pack functions
+  void pack(tagint *);
+  void pack_triclinic(tagint *);
   int convert_string(int, double *) override;
   void write_data(int, double *) override;
   int modify_param(int, char **) override;

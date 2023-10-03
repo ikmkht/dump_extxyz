@@ -18,6 +18,7 @@
 #include "error.h"
 #include "memory.h"
 #include "update.h"
+#include "domain.h"
 
 #include <cstring>
 
@@ -90,8 +91,16 @@ void DumpEXTXYZ::init_style()
 
   // setup function ptr
 
-  if (buffer_flag == 1) write_choice = &DumpXYZ::write_string;
-  else write_choice = &DumpXYZ::write_lines;
+  if (buffer_flag == 1) write_choice = &DumpEXTXYZ::write_string;
+  else write_choice = &DumpEXTXYZ::write_lines;
+  
+  if (domain->triclinic == 0){
+    header_choice = &DumpEXTXYZ::header_binary;
+    pack_choice = &DumpEXTXYZ::pack;
+  }else if (domain->triclinic == 1){
+    header_choice = &DumpEXTXYZ::header_binary_triclinic;
+    pack_choice = &DumpEXTXYZ::pack_triclinic;
+  }
 
   // open single file, one time only
 
@@ -100,7 +109,7 @@ void DumpEXTXYZ::init_style()
 
 /* ---------------------------------------------------------------------- */
 
-int DumpXYZ::modify_param(int narg, char **arg)
+int DumpEXTXYZ::modify_param(int narg, char **arg)
 {
   if (strcmp(arg[0],"element") == 0) {
     if (narg < ntypes+1)
@@ -127,19 +136,65 @@ int DumpXYZ::modify_param(int narg, char **arg)
 
 /* ---------------------------------------------------------------------- */
 
-void DumpXYZ::write_header(bigint n)
+void DumpEXTXYZ::write_header(bigint n)
 {
   if (me == 0) {
-    auto header = fmt::format("{}\n Atoms. Timestep: {}", n, update->ntimestep);
-    if (time_flag) header += fmt::format(" Time: {:.6f}", compute_time());
-    header += "\n";
-    fmt::print(fp, header);
+    (this->*header_choice)(n);
   }
 }
 
 /* ---------------------------------------------------------------------- */
 
-void DumpXYZ::pack(tagint *ids)
+void DumpEXTXYZ::header_binary(bigint n)
+{
+  auto header = fmt::format("{}", n);
+  header += "\n";
+  fmt::print(fp, header);
+  header = fmt::format("Lattice=\"{} 0.0 0.0 0.0 {} 0.0 0.0 0.0 {}\" ", boxxhi-boxxlo, boxyhi-boxylo, boxzhi-boxzlo);
+  header += "\n";
+  fmt::print(fp, header);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DumpEXTXYZ::header_binary_triclinic(bigint n)
+{
+  auto header = fmt::format("{}", n);
+  header += "\n";
+  fmt::print(fp, header);
+  header = fmt::format("Lattice=\"{} 0.0 0.0 0.0 {} 0.0 0.0 0.0 {}\" ", boxxhi-boxxlo, boxyhi-boxylo, boxzhi-boxzlo);
+  header += "\n";
+  fmt::print(fp, header);
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+void DumpEXTXYZ::pack(tagint *ids)
+{
+  int m,n;
+
+  tagint *tag = atom->tag;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  double **x = atom->x;
+  int nlocal = atom->nlocal;
+
+  m = n = 0;
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      buf[m++] = tag[i];
+      buf[m++] = type[i];
+      buf[m++] = x[i][0]-boxxlo;
+      buf[m++] = x[i][1]-boxylo;
+      buf[m++] = x[i][2]-boxzlo;
+      if (ids) ids[n++] = tag[i];
+    }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void DumpEXTXYZ::pack_triclinic(tagint *ids)
 {
   int m,n;
 
@@ -166,7 +221,7 @@ void DumpXYZ::pack(tagint *ids)
    return -1 if strlen exceeds an int, since used as arg in MPI calls in Dump
 ------------------------------------------------------------------------- */
 
-int DumpXYZ::convert_string(int n, double *mybuf)
+int DumpEXTXYZ::convert_string(int n, double *mybuf)
 {
   int offset = 0;
   int m = 0;
@@ -188,14 +243,14 @@ int DumpXYZ::convert_string(int n, double *mybuf)
 
 /* ---------------------------------------------------------------------- */
 
-void DumpXYZ::write_data(int n, double *mybuf)
+void DumpEXTXYZ::write_data(int n, double *mybuf)
 {
   (this->*write_choice)(n,mybuf);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void DumpXYZ::write_string(int n, double *mybuf)
+void DumpEXTXYZ::write_string(int n, double *mybuf)
 {
   if (mybuf)
     fwrite(mybuf,sizeof(char),n,fp);
@@ -203,7 +258,7 @@ void DumpXYZ::write_string(int n, double *mybuf)
 
 /* ---------------------------------------------------------------------- */
 
-void DumpXYZ::write_lines(int n, double *mybuf)
+void DumpEXTXYZ::write_lines(int n, double *mybuf)
 {
   int m = 0;
   for (int i = 0; i < n; i++) {
